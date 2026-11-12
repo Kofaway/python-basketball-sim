@@ -47,7 +47,7 @@ SIMULATE_MAX_STEPS = 1800
 # --- Пиксель-арт зал ---
 PA_BASE_W = 320
 PA_BASE_H = 180
-PA_WALL_CUTOFF = 142        # включаем стену, свет, дверь, табло, скамейки
+PA_WALL_CUTOFF = 114        # только стена + свет
 
 # --- Цвета ---
 C_BG = (10, 14, 22)
@@ -175,15 +175,10 @@ def _pa_scoreboard(surf, x, y):
 
 
 def _build_pixel_gym(surf):
-    """Отрисовка полной пиксель-арт сцены в 320×180."""
     surf.fill((0, 0, 0))
     _pa_wall(surf)
     _pa_floor(surf)
     _pa_lights(surf)
-    _pa_door(surf, 24, 46, 20, 42)
-    _pa_scoreboard(surf, 280, 40)
-    _pa_bench(surf, 50, 122, 90)
-    _pa_bench(surf, 180, 122, 90)
     _pa_lighting(surf, 0)
 
 
@@ -512,42 +507,58 @@ class GameLogic:
         w, h = self.geom.width, self.geom.height
         fy = self.geom.floor_y
 
-        # Пиксель-арт сцена зала в 320×180
         base = pygame.Surface((PA_BASE_W, PA_BASE_H))
         _build_pixel_gym(base)
-
-        # Обрезаем стену+скамейки (без пиксель-арт пола — он у нас свой)
         wall_portion = base.subsurface((0, 0, PA_BASE_W, PA_WALL_CUTOFF))
-        # Тянем на всю ширину и до нашей линии пола
         self.bg_crowd = pygame.transform.scale(wall_portion, (w, fy))
 
-        # Пол — деревянный паркет (наш, отдельный от сцены)
-        self.bg_floor = pygame.Surface((w, h - fy))
-        plank_w = max(28, int(40 * w / 1200))
-        for i in range(0, w, plank_w):
-            phase = (i // plank_w) % 3
-            base_c = C_FLOOR_BASE
-            mods = [(0, 0, 0), (15, 10, 5), (-15, -10, -5)][phase]
-            color = tuple(max(0, min(255, c + m))
-                          for c, m in zip(base_c, mods))
-            pygame.draw.rect(self.bg_floor, color,
-                             (i, 0, plank_w - 1, h - fy))
+        floor_h = h - fy
+        self.bg_floor = pygame.Surface((w, floor_h))
 
-        for j in range(0, h - fy, 40):
-            pygame.draw.line(self.bg_floor, C_FLOOR_SEAM, (0, j), (w, j), 1)
-        for i in range(0, w, plank_w):
-            pygame.draw.line(self.bg_floor, C_FLOOR_SEAM,
-                             (i, 0), (i, h - fy), 1)
+        s = self.geom.scale
+        ft_left_x = int(FT_LINE_FROM_BASELINE_M * s)
+        ft_right_x = int((COURT_LENGTH_M - FT_LINE_FROM_BASELINE_M) * s)
 
-        rng = random.Random(7)
-        for _ in range((w // plank_w) * (max(1, (h - fy) // 40))):
-            i = rng.randrange(1, max(2, w // plank_w))
-            j = rng.randrange(1, max(2, (h - fy) // 40))
-            px = i * plank_w - 6
-            py = j * 40 - 6
-            if 0 <= px < w and 0 <= py < h - fy:
-                pygame.draw.rect(self.bg_floor, (90, 60, 35),
-                                 (px, py, 2, 2))
+        wood = (198, 156, 108)
+        plank_h = max(10, int(22 * w / 1200))
+        shades = [(0, 0, 0), (10, 7, 4), (-10, -7, -4),
+                  (5, 4, 2), (12, 9, 5)]
+        seam = (140, 100, 62)
+        gap = (120, 84, 50)
+
+        y, row = 0, 0
+        while y < floor_h:
+            m = shades[row % len(shades)]
+            color = tuple(max(0, min(255, c + d))
+                          for c, d in zip(wood, m))
+            ph = min(plank_h, floor_h - y)
+            pygame.draw.rect(self.bg_floor, color, (0, y, w, ph - 1))
+
+            plank_w = max(60, int(90 * w / 1200))
+            offset = (row % 2) * (plank_w // 2)
+            x = offset
+            while x < w:
+                pygame.draw.line(self.bg_floor, seam,
+                                 (x, y), (x, y + ph - 2), 1)
+                x += plank_w
+
+            pygame.draw.line(self.bg_floor, gap,
+                             (0, y + ph - 1), (w, y + ph - 1), 1)
+            y += plank_h
+            row += 1
+
+        paint = pygame.Surface((w, floor_h), pygame.SRCALPHA)
+        paint_key = (172, 74, 54, 150)
+        pygame.draw.rect(paint, paint_key, (0, 0, ft_left_x, floor_h))
+        pygame.draw.rect(paint, paint_key,
+                         (ft_right_x, 0, w - ft_right_x, floor_h))
+        self.bg_floor.blit(paint, (0, 0))
+
+        fade = pygame.Surface((w, floor_h), pygame.SRCALPHA)
+        for yy in range(floor_h):
+            a = int(55 * yy / max(1, floor_h))
+            pygame.draw.line(fade, (0, 0, 0, a), (0, yy), (w, yy))
+        self.bg_floor.blit(fade, (0, 0))
 
     # ---------- Утилиты ----------
     def _pick_hoop_by_direction(self, vx_dir, from_x):
